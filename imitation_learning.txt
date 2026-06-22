@@ -1,0 +1,25 @@
+Imitation Learning
+MDN - Mixture Density Network
+Solving the Multi Modality Problem using GMM - Guassian Mixture Model
+This is also Part of the Imitation Learning (Behaviour Cloning)
+
+Problem :
+A robo is moving from it's initial position to the final target position , but in between it has tree as obstacle , so robo need to take left or right,
+But left and right are correct paths , and finally lead to your target position.
+When we use the supervised learning here , it will average out the left path and right path, which leads to moving straight and hence robo will collide with tree
+
+Solution:
+The above problem is called Point Estimate Policy problem , where we directly output a value , but the thing is , this is MULTI MODAL PROBLEM , it means that , for
+a single input there are two outputs possible.
+1.We need to return the probability distribution instead of point estimate , then the robo can pick the sample from the probability distribution
+2.There are two modes in the above problem , so one is left path and other one is right path
+
+So taking a single guassian doesn't solve this problem (avg mean of these two paths , and variance of these two paths end up added)
+So we consider GMM i.e Mixture of Guassian models , where k =2 ,i.e 2 guassian models
+
+The the above explanation converts the Behaviour Cloning problem from SL -> DGM
+i.e from supervised learning to Deep Generative Models.
+
+
+So let's write the code for the above problem ,where we need to implement the 2 mixture of guassians
+i.e we have 2 modes here , each mode reperesenting left path and right path

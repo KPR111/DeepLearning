@@ -1,0 +1,121 @@
+Diffusion Policy
+
+Let's Start with the limitations of the ACT 
+
+1.MultiModality Collapse
+ACT unable to take mixture of gussians , and tries to represent all actions in a single Gussian Distribution , which ends up taking up the average of multiple 
+gussians into a single gussian
+2.OOD problem
+ACT struggles to perform ,when we provide it a scenario where which is not present in the distribution i.e Out of Distribution
+3. High Sensitivity to Human "Data Noise"
+Human demonstrators are imperfect. When teleoperating a robot, a human might hesitate, shake their hand slightly, or take a messy route. ACT tries to reconstruct the
+exact data too rigidly. It ends up copying human hesitation or jitter. Diffusion Policy ignores this noise because its denoising process naturally filters
+out random hand shakes.
+4.VAE architecture are highly instable and easily collpased to underfitting or overfitting if not carefull
+
+How the Diffusion Policy is solving the above limitations
+
+1. How it Fixes Multimodality (No More Averaging)
+The Old Way (ACT): ACT uses a single Gaussian curve. It must pick one average center point, which forces it to combine different demonstration styles.
+The Diffusion Fix: Diffusion Policy is an iterative sampler. It uses a neural network (like a U-Net) to predict and remove 
+noise. Mathematically, this allows it to shape the action landscape into multiple distinct "valleys" (called a multimodal distribution)
+
+Human Data:    [Left Path]                      [Right Path]
+                  \                                /
+ACT:               \---> [Averages the Middle] <---/  ❌ (Fails)
+                  
+Diffusion:         /---> Snaps to Left Path           ✔️ (Succeeds)
+           [Noise]
+                   \---> Snaps to Right Path          ✔️ (Succeeds)
+
+
+2. How it Fixes OOD and Compounding Errors (Receding Horizon Control)
+The Old Way (ACT): ACT predicts a long chunk of actions and blindly executes it. If it drifts off course, the tiny error multiplies because it isn't checking the
+ camera often enough.
+The Diffusion Fix: Diffusion Policy uses a highly reactive setup called Receding Horizon Control.
+
+3. How it Fixes Human "Data Noise" (Natural Smoothing)
+The Diffusion Fix: Because the entire core of Diffusion Policy is about smoothing out noise, it treats human hesitation or tiny hand jitters as just "random noise".
+ During the denoising steps, the model naturally filters out these shaky movements, resulting in a robot trajectory that is often much smoother and cleaner than the
+ original human demonstration.
+ 
+ 
+Receding horizon control: A control strategy where the robot plans a sequence of future actions, executes only the first few actions, and then replans. 
+This fixes errors in real-time.
+
+
+Let's Begin
+DDPM is must to understand this Diffusion Policy 
+
+Basic Summary of DDPM 
+In forward pass we take a fresh image and keep on adding noise with noise schedule alpha , beta until we active complete pure noise i.e xt+1 = alpha*xt + beta*epsilon
+where here aplha and beta are the noise schedule
+While Denoisng the Image we have xt-1 = xt - constant*E(thetha,time) + beta*epsilon
+this is not the orginal formula , I have removed all constants from it , like alpha ,alphabars and betas , betabars
+
+
+While DDPMs are typically used for image generation (x is an image), we use a DDPM to learn robot visuomotor policies. 
+This requires two major modifications in the formulation: 
+1. changing the output x to represent robot actions. 
+2. making the denoising processes conditioned on input observation Ot(The state of the robot - DOF at timestamp t or Images of robot at timestamp t)
+
+
+So in this Diffusion Policy 
+the U-Net part in diffusion is replaced with either  Feature-wise Linear Modulation (FiLM) or the Trasnformers
+Obviously Trasnformers work better with their usual trade offs , need more compute , more latency... blah blah ...
+
+We will talk only about the trasnformer version of the diffusion policy
+
+So Diffusion Policy is a replica of DDPM 
+with the following changes
+
+1.Image noising and densoing is replaced with Tp Actions noising and denoising
+		-To the latest To states of the robo (To stands a number i.e T0 =5 , i.e last 5 states of the robot)
+        -Tp while generating the Actions , we generate Tp number actions (to remove jerks and smooth motion of robot arm)
+		-Ta In total Tp generated Actions , we execute only Ta number of actions on robot arm and discard remaining (this reduces errors like compounding error)
+2.So Inforward pass ,we take a Action and conditioned with the observation Ot and try to add noise until we get a pure guassian noise
+		-Ot at time step t the policy takes the latest/last To steps of observation data Ot (Ot include both state info(dof info or propriceptory data) and Image info)
+the formula changes to At-1 = At - comstant*E(thetha,Ot,time) + gussian noise i.e conditioned with Ot
+
+Let's study what does it mean by conditioned with Ot
+
+Forward Pass
+		Pick A0 and add noise i.e A1 = alpha*A0 + beta*epsilon
+		there is no intervention of Ot here
+		
+Denoisng*** - 
+	We take a pure gussian noise and start conditioned denoising it until we get consistent reliable action as output
+		
+	Input is Obviously the At_t+Tp
+		-Here At_t+Tp means denoising all Tp number of consective actions , not one action at a time [Even noising is also done for Tp actions at once]
+	
+	Condition Ot => includes last To steps of observation data [Include Image data , State_dim] of last To steps 
+		Image data - [B,To,C,H,W] => [B,To,feat_dim]
+		State/Dof/Propriceptory data - [B,To,State_dim]   (Note - state_dim and action_dim are same)
+		Ot => concat(Image data , state data) => [B,To,feat_dim+state_dim] =linear projetion=> [B,To,d_model]    (Note - concat doesn't mean adding)
+		
+	U-Net replaced with Trasnformers
+		where we will be having blocks 
+		Each block having a self attention and followed by a cross attention
+		Queries => [B,Tp,Action_dim] =linear projection=> [B,Tp,d_model]
+		In self attention => Values and Keys are same i.e [B,Tp,d_model]
+		In cros attetnion => Values and Keys are from i.e [B,To,d_model]
+		final context vector is of dimension of => [B,Tp,d_model]
+	(note :- In cross attention the number of token may be different , but the embedding dimension should be same inorder to perform attention ,no of tokens tp,to)
+		
+		
+		
+		
+		
+		
+		
+											DIMENSIONAL FLOW OF THE DIFFUSION Policy
+		
+		
+		
+[Noisy Actions] ───> [Shape: B, Tp, Action_dim] ───> [Linear Layer] ───> [Q: B, Tp, d_model] ──┐			#before we perform self attention here
+																							   ▼
+[Context O_t]   ───> [Shape: B, To, Mixed_dim]  ───> [Linear Layer] ───> [K,V: B, To, d_model] 	──> [Cross-Attention]
+                                                                                                        │
+                                                                                                        ▼
+[Predicted Noise] <─── [Linear Head] <─── [Shape: B, Tp, Action_dim] <─── [Output: B, Tp, d_model] <────┘

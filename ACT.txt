@@ -1,0 +1,127 @@
+ACT - Action Chunking Transformers.
+
+Architecture Prerequisites
+1.DETR idea of Object Queries
+2.Action Chunking Idea
+3.ViT idea of CLS token
+
+This Architecture is a Mixture of CVAE and Transformers
+
+In traditional VAE , we have an encoder and decoder
+But this VAE is completely customzied
+i.e 
+Firstly it's normal VAE it's conditioned VAE 
+Secondly the encoder don't use the normal MLP , instead it uses the Transformers self attention along with CLS token -> [Replica of ViT architecture]
+so this encoder returns a cls token , aka Z which contains all compressed information of k chunks of future actions and the current state
+
+Wait a minute what do you mean by K chunks of future actions?
+
+ACTION CHUNKING IDEA :-
+This idea is commonly used in all the models released 
+Problem : previously we were only predicting one action at a time , which leading to the jerking of the robot and it's not smooth , apart from this there is issue of
+1. Compounding Errors (The Drift Problem)
+2. Failure to Capture Non-Markovian Human Behavior (The "Pause" Problem)
+3. Causal Misattribution (Over-indexing on Proprioception)
+The ACT Fix: Predicting an entire trajectory forces the network to actually use the visual context (the camera frames) to plan out where the robot needs to go over
+the next 1–2 seconds.
+
+Comming back to the Architecture
+The VAE Decoder is completely changed
+It agains contains an encoder and decoder , both are Transformers based
+
+So in Encoder of the Decoder 
+We will have Z , Current State , Images (visual information) into the Self Attention -> we get a context vector of entire context
+So in Decoder of the Decoder
+we will be having the entire context vector , and also we send the object queries [DETR IDEA] 
+Here object queries means K action queries , i.e we try to predict next K actions , so for that first we have to initialize them and send them to the Cross Attention
+Here q of [q,k,v of attn] is from k actions and keys and values from the context vector generated from the second encoder
+
+So as you know the attention mechanism returns the same dimesion of queries as the output 
+so there we get a k context vectors of output each representing the action
+
+[There is neat Architecture Diagram give in the ACT paper in the last page - explained very properly with one full page]
+
+
+
+
+
+Below is the Dimensional Flow of the Entire Architecture
+
+
+1. CVAE Encoder (Vision Transformer / ResNet-ViT)
+
+[Action Sequence (B, K, D_action)] + [Current Joint State (B, D_action)]
+                                  │
+                                  ▼  Linear Layer
+                         (B, K + 1, D_model)
+                                  │
+                                  ▼  Prepend [CLS] Token
+                         (B, K + 2, D_model)
+                                  │
+                                  ▼  ViT / Transformer Encoder Blocks
+                         (B, K + 2, D_model)
+                                  │
+                                  ▼  Extract [CLS] Token Embedding
+                           (B, D_model)
+                                  │
+                   ┌──────────────┴──────────────┐
+                   ▼ Linear Layer                ▼ Linear Layer
+              Mean (μ): (B, D_latent)       Log-variance (σ): (B, D_latent)
+                   └──────────────┬──────────────┘
+                                  ▼  Reparameterization Trick
+                             z: (B, D_latent)
+							 
+							 
+
+
+
+
+2. Policy / CVAE Decoder (Transformer Encoder + Decoder)
+
+
+Part A: Visual Feature Extraction
+
+Input Images: V views × (B, C, H, W)
+                    │
+                    ▼  CNN Backbone (e.g., ResNet-18)
+          V views × (B, D_backbone, H/32, W/32)
+                    │
+                    ▼  1x1 Convolution & Flatten Spatial Dimensions
+              (B, V × H_patch × W_patch, D_model)
+			  
+			  
+Part B: The Transformer Encoder (Self-Attention Layer)
+
+┌───────────────────────────────── Tokens Input ──────────────────────────────────┐
+│                                                                                 │
+│   Latent Code (z)     Current Joints     Visual Patches (All Views)             │
+│    (B, 1, D_latent)    (B, 1, D_action)   (B, V × H_patch × W_patch, D_model)   │
+│           │                   │                           │                     │
+│           ▼ Linear            ▼ Linear                    ▼ Add Spat-Temp Pos   │
+│    (B, 1, D_model)     (B, 1, D_model)    (B, V × H_patch × W_patch, D_model)   │
+│           │                   │                           │                     │
+└───────────┴───────────────────┴───────────────────────────┴─────────────────────┘
+                                        │
+                                        ▼ Concatenate along Sequence Dimension
+                     Total Tokens (S): (B, S, D_model)
+                                        │
+                                        ▼ Multi-Head Self-Attention Blocks
+                     Encoder Memory:   (B, S, D_model)
+					 
+					 
+					 
+
+Part C: The Transformer Decoder (Cross-Attention Layer)
+
+Learned Action Queries                        Encoder Memory (Context)
+  (B, K, D_model)                                  (B, S, D_model)
+        │                                                 │
+        ├─────────────────────────────────────────────────┤
+        ▼
+   Transformer Decoder Block:
+     1. Masked Self-Attention on Queries ──────────────> (B, K, D_model)
+     2. Cross-Attention (Q = Queries, K/V = Memory) ──> (B, K, D_model)
+     3. Feed-Forward Network ──────────────────────────> (B, K, D_model)
+        │
+        ▼ Linear Action Prediction Head
+   Predicted Action Chunk: (B, K, D_action)

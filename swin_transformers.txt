@@ -1,0 +1,83 @@
+Swin Transformers - Shifted Window Transformers Code from Scratch
+
+
+
+Swin Transformer is the Optimized Version of the ViT 
+General Tranfomers TC ~ O(N**2) but the TC of the Swin Transformers is ~ O(N)
+
+How??
+For that they have introduced some terminology that you need to know
+
+1.W-MSA  => Window Multi Head Self Attnetion
+2.SW-MSA => Shifted Window Multi Head Self Attention   ***Cyclic Shifting***
+3.relative position bias
+4.Mask bias
+5.Hirerchial Learning 
+6.Patch Partioning
+7.Patch Merging
+8.Linear Embedding aka Linear Projection
+
+
+
+       [ Images ] (H x W x 3)
+           │
+           ▼
+   [ Patch Partition ]  #Changing View 
+           │
+           ▼  (H/4 x W/4 x 48)
+┌───────────────────────────────────────────────┐
+│ STAGE 1                                       │
+│  [Linear Embedding] ──► [Swin Block] (x2)     │	Linear Embedding is same as Linear Projection
+└───────────────────────────────────────────────┘
+           │
+           ▼  (H/4 x W/4 x C)
+┌───────────────────────────────────────────────┐
+│ STAGE 2                                       │
+│  [Patch Merging]    ──► [Swin Block] (x2)     │	Patch Merging => (H/4 x W/4 x C) =Change View=> (H/8 x W/8 x 4C) =Linear Projection=> ((H/8 x W/8 x 2C) 
+└───────────────────────────────────────────────┘
+           │
+           ▼  (H/8 x W/8 x 2C)
+┌───────────────────────────────────────────────┐
+│ STAGE 3                                       │
+│  [Patch Merging]    ──► [Swin Block] (x6)     │
+└───────────────────────────────────────────────┘
+           │
+           ▼  (H/16 x W/16 x 4C)
+┌───────────────────────────────────────────────┐
+│ STAGE 4                                       │
+│  [Patch Merging]    ──► [Swin Block] (x2)     │
+└───────────────────────────────────────────────┘
+           │
+           ▼  (H/32 x W/32 x 8C)
+		   
+		   
+
+Each Swin Block consists of Normal 2 Transformer Blocks ,where first Transformer Block Attnetion is replaced with Window Multi Head Self Attention
+and Second Transformer Block Attention is replaced with Shifted Window MHSA/MSA
+
+
+Hierarchical Learning in the Swin Transformer means that the model processes images at multiple different scales (resolutions) as it gets deeper.
+
+Let's go through this Window Terminology
+
+group(pixels)  -> patch
+group(patches) -> window
+group(windows) -> Image
+
+so pixels -> patches -> windows -> image
+
+So let's continue from ViT i.e let's continue from patches 
+[In Vit every Image is size of 16x16 patches]
+
+Let's calculate the TC of ViT 
+Let N be the number of patches
+See in attention weigths we have QKt product i.e there are N queries and N keys , then QxKt is N*N i.e N**2 TC 
+i.e ViT ~ O(N**2)
+let p be the patch size then number of patches = H/p * W/p => (HW)/P**2
+i.e ViT ~ O((HW)/P**2)**2 
+i.e on doubling the resolution of the image , our complexity increases by 4 times
+
+
+Let's calculate the TC of Swin Transformer
+See Here we don't calcualte the Attention for the Entire Image Directly instead take windows for each window calcualte the Attention in only that window only
+
